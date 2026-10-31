@@ -29,7 +29,7 @@ github:
   username: TurkeyMaster
 
 twitter:
-  username: TheBigBoisNews
+  username: 
 
 social:
   # Change to your full name.
@@ -39,7 +39,6 @@ social:
   fediverse_handle: # fill in your fediverse handle. E.g. "@username@domain.com"
   links:
     # The first element serves as the copyright owner's link
-    - https://x.com/TheBigBoisNews
     - https://github.com/TurkeyMaster
     # Uncomment below to add more social links
     # - https://www.facebook.com/username
