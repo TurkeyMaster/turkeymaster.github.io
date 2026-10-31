@@ -188,4 +188,7 @@ Playnite gets a lot right: HTTPS everywhere, user confirmation, mirror fallbacks
 
 When I look at any program's auto-updater, the question I start with is: **if the update server lied, would the app notice?** For Playnite's app updater, only if a mirror lied and the manifest didn't. For add-ons and the online installer, no.
 
+> I reported these findings and suggestions to the Playnite developer in [issue #4417](https://github.com/JosefNemec/Playnite/issues/4417). I'll update this post if anything changes.
+{: .prompt-tip }
+
 *Playnite is MIT-licensed. Code excerpts above are quoted from the Playnite repository, copyright Josef Nemec.*
