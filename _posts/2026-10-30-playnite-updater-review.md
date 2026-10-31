@@ -138,15 +138,28 @@ Reading code only gets you so far, so I checked the actual 10.63 release on a Wi
 
 - **The MD5 matches.** I downloaded `Playnite1063.exe` from the GitHub release, and `Get-FileHash -Algorithm MD5` returned `D6CE9DE1BA01BD8A37F29349B1AEB058`, exactly what the live manifest lists. The mirror and the manifest agree.
 - **The installer isn't signed.** `Get-AuthenticodeSignature` returned `NotSigned`, and there's no certificate attached.
+- **The installed app is signed.** On my installed copy, `Playnite.DesktopApp.exe` has a valid signature from a SignPath Foundation certificate, issued by GlobalSign.
 
 ```text
 PS> Get-AuthenticodeSignature .\Playnite1063.exe | Format-List Status, SignerCertificate
 
 Status            : NotSigned
 SignerCertificate :
+
+PS> Get-AuthenticodeSignature "$env:LOCALAPPDATA\Playnite\Playnite.DesktopApp.exe" | Format-List Status, SignerCertificate
+
+Status            : Valid
+SignerCertificate : [Subject]
+                      CN=SignPath Foundation, O=SignPath Foundation, L=Lewes, S=Delaware, C=US
+                    [Issuer]
+                      CN=GlobalSign GCC R45 CodeSigning CA 2020, O=GlobalSign nv-sa, C=BE
+                    [Thumbprint]
+                      E491F092639A94BA474A1B8BD14D2CFA4B7A9059
 ```
 
-That second result matters for everything above. The unused `IsTrusted()` check couldn't help today even if it were wired in, and users have no publisher name to look for in the UAC prompt.
+The unsigned installer surprised me, because Playnite's README credits [SignPath](https://signpath.org) for free code signing ([`README.md` L103](https://github.com/JosefNemec/Playnite/blob/3e8abb241873e326e27c75b59dd0d2ea367698e3/README.md?plain=1#L103)). The CI config explains it: AppVeyor sends `build\Playnite.zip` to SignPath's release-signing policy ([`appveyor.yml` L16-20](https://github.com/JosefNemec/Playnite/blob/3e8abb241873e326e27c75b59dd0d2ea367698e3/appveyor.yml#L16-L20)), and that zip holds the app's own files, which is why the installed `Playnite.DesktopApp.exe` checks out. The setup `.exe` that the updater and online installer actually run isn't built in this repo, and it isn't signed.
+
+So the signing setup already exists. It just doesn't cover the one file that matters most for updates. That also means the unused `IsTrusted()` check couldn't help today even if it were wired in, and users have no publisher name to look for in the UAC prompt.
 
 ## How much does this matter?
 
@@ -162,8 +175,8 @@ Less than it sounds, but it's worth fixing.
 ## What a stronger setup would do
 
 **For the app updater and the online installer**, pick one:
-1. **Sign the releases, then verify them.** Code-sign the installer, then have both the updater and the online installer call the existing `IsTrusted()` before running it, and check that the signing certificate belongs to the Playnite developer. Otherwise any validly signed file would pass. Code-signing certificates cost money every year, which may be why releases aren't signed today.
-2. **Or sign the manifest, which is free.** Sign `update.json` with a private key (tools like minisign make this simple) and ship the matching public key inside Playnite. A compromised server then can't produce a manifest the app will accept, and the existing checksum check takes care of the rest. Switch that checksum to SHA-256 while you're there.
+1. **Sign the installer too, then verify it.** Playnite already has free signing through SignPath, so the setup `.exe` could go through the same pipeline as `Playnite.zip`. Then have both the updater and the online installer call the existing `IsTrusted()` before running it, and check who signed it. Otherwise any validly signed file would pass. There's a catch: the certificate is issued to "SignPath Foundation," not Playnite, and as far as I know the foundation signs other open-source projects too. Checking the subject name alone wouldn't prove a file came from Playnite, and pinning the thumbprint breaks every time the certificate renews.
+2. **Or sign the manifest, which avoids that catch.** Sign `update.json` with a private key (tools like minisign make this simple) and ship the matching public key inside Playnite. A compromised server then can't produce a manifest the app will accept, and the existing checksum check takes care of the rest. Switch that checksum to SHA-256 while you're there.
 
 **For add-ons:**
 1. **Record a SHA-256 hash for each package version** when the Playnite API first sees it, and refuse a package that doesn't match. That pins each release in place, so changing a developer's manifest later can't swap the file behind an existing version.
@@ -171,7 +184,7 @@ Less than it sounds, but it's worth fixing.
 
 ## Wrapping up
 
-Playnite gets a lot right: HTTPS everywhere, user confirmation, mirror fallbacks, an add-on kill switch, and safe zip extraction. What none of its three download paths do is check *who* built the file. The code for that check is already in the project, but the releases aren't signed yet, so there's nothing for it to check.
+Playnite gets a lot right: HTTPS everywhere, user confirmation, mirror fallbacks, an add-on kill switch, and safe zip extraction. What none of its three download paths do is check *who* built the file. Both halves of the fix are already sitting in the project: a signature check that nothing calls, and a free signing pipeline that skips the installer. Connecting them would close the biggest gap.
 
 When I look at any program's auto-updater, the question I start with is: **if the update server lied, would the app notice?** For Playnite's app updater, only if a mirror lied and the manifest didn't. For add-ons and the online installer, no.
 
