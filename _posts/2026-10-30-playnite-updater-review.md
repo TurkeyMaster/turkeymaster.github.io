@@ -13,6 +13,9 @@ Auto-updaters are one of the most trusted pieces of code on a PC. They download 
 > This is a design review of public code, not an exploit. I didn't attack Playnite's servers, tamper with anyone's install, or upload anything to the add-on database.
 {: .prompt-info }
 
+> **Update (October 31, 2026):** Playnite's developer [replied to my report](https://github.com/JosefNemec/Playnite/issues/4417). Signing the installer through SignPath isn't practical with how Playnite's Inno Setup installers are built, and `IsTrusted()` is left over from a previous signing provider. Instead, he's looking into **minisign verification for both the update package and the manifest**. New add-on submissions are paused while the add-on system is reworked, with **public builds from source, stamped binaries, and client-side checks that a binary wasn't swapped after publishing**. I've corrected the sections below to match.
+{: .prompt-tip }
+
 ## Three ways code gets onto your PC
 
 Playnite has three separate download paths, and they don't verify things the same way:
@@ -93,6 +96,8 @@ I searched the whole codebase for callers. The only place `SigningTools.IsTruste
 
 And right now it wouldn't have anything to check: the 10.63 installer isn't signed at all (see [What I verified](#what-i-verified) below).
 
+*Correction:* the developer explained that `IsTrusted()` dates from a few years ago, when Playnite used a different signing provider whose setup worked locally. It can't work with the current SignPath setup, which is why nothing calls it. So it's leftover code, not a check someone forgot to wire up.
+
 ## 2. Add-ons: hundreds of developers in the trust chain
 
 Add-ons are where Playnite's trust surface gets much bigger. Extensions are DLLs or PowerShell scripts that Playnite loads directly ([`ExtensionFactory.cs` L465](https://github.com/JosefNemec/Playnite/blob/3e8abb241873e326e27c75b59dd0d2ea367698e3/source/Playnite/Plugins/ExtensionFactory.cs#L465)), so a malicious add-on runs with all of your user account's permissions.
@@ -159,7 +164,7 @@ SignerCertificate : [Subject]
 
 The unsigned installer surprised me, because Playnite's README credits [SignPath](https://signpath.org) for free code signing ([`README.md` L103](https://github.com/JosefNemec/Playnite/blob/3e8abb241873e326e27c75b59dd0d2ea367698e3/README.md?plain=1#L103)). The CI config explains it: AppVeyor sends `build\Playnite.zip` to SignPath's release-signing policy ([`appveyor.yml` L16-20](https://github.com/JosefNemec/Playnite/blob/3e8abb241873e326e27c75b59dd0d2ea367698e3/appveyor.yml#L16-L20)), and that zip holds the app's own files, which is why the installed `Playnite.DesktopApp.exe` checks out. The setup `.exe` that the updater and online installer actually run isn't built in this repo, and it isn't signed.
 
-So the signing setup already exists. It just doesn't cover the one file that matters most for updates. That also means the unused `IsTrusted()` check couldn't help today even if it were wired in, and users have no publisher name to look for in the UAC prompt.
+According to the developer, that gap isn't an oversight. SignPath limits how open-source projects can sign things, and because Playnite's installer and update packages are separate Inno Setup installers, signing them isn't practical while Playnite uses Inno Setup. That also means the unused `IsTrusted()` check couldn't help today even if it were wired in, and users have no publisher name to look for in the UAC prompt.
 
 ## How much does this matter?
 
@@ -175,8 +180,8 @@ Less than it sounds, but it's worth fixing.
 ## What a stronger setup would do
 
 **For the app updater and the online installer**, pick one:
-1. **Sign the installer too, then verify it.** Playnite already has free signing through SignPath, so the setup `.exe` could go through the same pipeline as `Playnite.zip`. Then have both the updater and the online installer call the existing `IsTrusted()` before running it, and check who signed it. Otherwise any validly signed file would pass. There's a catch: the certificate is issued to "SignPath Foundation," not Playnite, and as far as I know the foundation signs other open-source projects too. Checking the subject name alone wouldn't prove a file came from Playnite, and pinning the thumbprint breaks every time the certificate renews.
-2. **Or sign the manifest, which avoids that catch.** Sign `update.json` with a private key (tools like minisign make this simple) and ship the matching public key inside Playnite. A compromised server then can't produce a manifest the app will accept, and the existing checksum check takes care of the rest. Switch that checksum to SHA-256 while you're there.
+1. **Sign the installer too, then verify it.** *(Per the developer, this isn't practical with SignPath and Inno Setup. See the update at the top.)* The idea was to send the setup `.exe` through the same SignPath pipeline as `Playnite.zip`. Then have both the updater and the online installer call the existing `IsTrusted()` before running it, and check who signed it. Otherwise any validly signed file would pass. There's a catch: the certificate is issued to "SignPath Foundation," not Playnite, and as far as I know the foundation signs other open-source projects too. Checking the subject name alone wouldn't prove a file came from Playnite, and pinning the thumbprint breaks every time the certificate renews.
+2. **Or sign the manifest, which avoids that catch.** *(This is the direction the developer is looking into.)* Sign `update.json` with a private key (tools like minisign make this simple) and ship the matching public key inside Playnite. A compromised server then can't produce a manifest the app will accept, and the existing checksum check takes care of the rest. Switch that checksum to SHA-256 while you're there.
 
 **For add-ons:**
 1. **Record a SHA-256 hash for each package version** when the Playnite API first sees it, and refuse a package that doesn't match. That pins each release in place, so changing a developer's manifest later can't swap the file behind an existing version.
@@ -184,11 +189,11 @@ Less than it sounds, but it's worth fixing.
 
 ## Wrapping up
 
-Playnite gets a lot right: HTTPS everywhere, user confirmation, mirror fallbacks, an add-on kill switch, and safe zip extraction. What none of its three download paths do is check *who* built the file. Both halves of the fix are already sitting in the project: a signature check that nothing calls, and a free signing pipeline that skips the installer. Connecting them would close the biggest gap.
+Playnite gets a lot right: HTTPS everywhere, user confirmation, mirror fallbacks, an add-on kill switch, and safe zip extraction. What none of its three download paths do is check *who* built the file. Code signing turned out to be the wrong tool for this project's setup, but signing the manifest and packages with something like minisign isn't, and that's the route the developer is taking. The add-on rework goes further than anything I suggested.
 
 When I look at any program's auto-updater, the question I start with is: **if the update server lied, would the app notice?** For Playnite's app updater, only if a mirror lied and the manifest didn't. For add-ons and the online installer, no.
 
-> I reported these findings and suggestions to the Playnite developer in [issue #4417](https://github.com/JosefNemec/Playnite/issues/4417). I'll update this post if anything changes.
+> I reported these findings and suggestions to the Playnite developer in [issue #4417](https://github.com/JosefNemec/Playnite/issues/4417), and he replied the next day (see the update at the top). I'll update this post again when minisign verification ships.
 {: .prompt-tip }
 
 *Playnite is MIT-licensed. Code excerpts above are quoted from the Playnite repository, copyright Josef Nemec.*
