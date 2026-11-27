@@ -1,6 +1,6 @@
 ---
 title: "From SDK Dump to Trainer: How Unreal Engine Games Give Themselves Away"
-date: 2026-11-27 12:00:00 -0800
+date: 2026-11-27 08:00:00 -0800
 categories: [Guides, Game Reversing]
 tags: [unreal-engine, reverse-engineering, dumper-7, cpp, dll, single-player]
 description: Why almost every Unreal Engine game ships a map of its own internals, how Dumper-7 turns that into a C++ SDK, and how that SDK becomes an internal DLL trainer for a single-player game.
